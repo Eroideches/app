@@ -43,5 +43,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: soundstream-apk
-          path: build/app/outputs/flutter-apk/app-rele
-ase.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
