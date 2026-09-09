@@ -1,0 +1,33 @@
+name: soundstream
+description: App di streaming audio con ricerca, player, coda e playlist basata su Piped API.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Gestione dello stato dell'app (player, coda, playlist)
+  provider: ^6.1.2
+
+  # Chiamate HTTP verso le istanze Piped
+  http: ^1.2.2
+
+  # Motore di riproduzione audio
+  just_audio: ^0.9.40
+
+  # Riproduzione in background + notifica media controls
+  just_audio_background: ^0.0.1-beta.13
+  audio_service: ^0.18.15
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
