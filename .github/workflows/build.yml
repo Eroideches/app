@@ -1,12 +1,17 @@
-name: Build APK
+name: Build APK e Web
 
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
-  build:
+  build-apk:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -26,11 +31,10 @@ jobs:
           cp -rf /tmp/scaffold/app/. .
           rm -rf /tmp/scaffold
 
-      - name: Patch AndroidManifest for background audio
+      - name: Add required permissions to AndroidManifest
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
           sed -i 's#<manifest xmlns:android="http://schemas.android.com/apk/res/android">#<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>#' "$MANIFEST"
-          sed -i 's#</application>#    <service android:name="com.ryanheise.audioservice.AudioService" android:foregroundServiceType="mediaPlayback" android:exported="true">\n        <intent-filter>\n            <action android:name="android.media.browse.MediaBrowserService" />\n        </intent-filter>\n    </service>\n    <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver" android:exported="true">\n        <intent-filter>\n            <action android:name="android.intent.action.MEDIA_BUTTON" />\n        </intent-filter>\n    </receiver>\n</application>#' "$MANIFEST"
           cat "$MANIFEST"
 
       - name: Get dependencies
@@ -44,3 +48,41 @@ jobs:
         with:
           name: soundstream-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+  build-web:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Generate Flutter project scaffold (web)
+        run: |
+          mkdir -p /tmp/scaffold
+          flutter create --platforms=web --org com.soundstream /tmp/scaffold/app
+          cp -f pubspec.yaml /tmp/scaffold/app/pubspec.yaml
+          cp -f lib/main.dart /tmp/scaffold/app/lib/main.dart
+          cp -rf /tmp/scaffold/app/. .
+          rm -rf /tmp/scaffold
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build web
+        run: flutter build web --base-href /${{ github.event.repository.name }}/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
