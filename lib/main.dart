@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
@@ -13,11 +12,19 @@ import 'package:provider/provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.soundstream.app.channel.audio',
-    androidNotificationChannelName: 'Riproduzione audio',
-    androidNotificationOngoing: true,
-  );
+  // L'inizializzazione del servizio di background è avvolta in un try/catch:
+  // se fallisce (permesso notifiche negato su Android 13+, piattaforma web,
+  // o altro problema nativo) l'app deve comunque avviarsi e mostrare la UI
+  // invece di restare bloccata su schermo nero prima ancora di runApp().
+  try {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'com.soundstream.app.channel.audio',
+      androidNotificationChannelName: 'Riproduzione audio',
+      androidNotificationOngoing: true,
+    );
+  } catch (e) {
+    debugPrint('JustAudioBackground non inizializzato: $e');
+  }
   runApp(const SoundStreamApp());
 }
 
@@ -643,7 +650,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _controller = TextEditingController();
-  List<Song> _results = [];bool _isSearching = false;
+  List<Song> _results = [];
+  bool _isSearching = false;
   String? _error;
 
   Future<void> _runSearch() async {
