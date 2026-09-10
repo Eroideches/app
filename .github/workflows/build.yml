@@ -34,8 +34,24 @@ jobs:
       - name: Add required permissions to AndroidManifest
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
-          sed -i 's#<manifest xmlns:android="http://schemas.android.com/apk/res/android">#<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>#' "$MANIFEST"
+          echo "--- Manifest PRIMA della patch ---"
           cat "$MANIFEST"
+
+          # Aggancio al token "<application" (sempre presente, indipendentemente
+          # da come Flutter formatta la riga di apertura <manifest ...>), così
+          # la patch funziona anche se cambia la versione di Flutter/template.
+          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <application#' "$MANIFEST"
+
+          echo "--- Manifest DOPO la patch ---"
+          cat "$MANIFEST"
+
+          # Verifica esplicita: se il permesso INTERNET non è presente,
+          # la build si ferma qui con un errore chiaro invece di produrre
+          # un APK che compila ma non riesce a fare richieste di rete.
+          if ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
+            echo "::error::Permesso INTERNET non presente nel Manifest dopo la patch. Build interrotta."
+            exit 1
+          fi
 
       - name: Get dependencies
         run: flutter pub get
