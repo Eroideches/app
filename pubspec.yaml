@@ -17,6 +17,9 @@ dependencies:
   # Chiamate HTTP verso le istanze Piped
   http: ^1.2.2
 
+  # Salvataggio permanente delle playlist sul dispositivo
+  shared_preferences: ^2.3.2
+
   # Motore di riproduzione audio
   just_audio: ^0.9.40
 
