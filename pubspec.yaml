@@ -21,8 +21,8 @@ dependencies:
   just_audio: ^0.9.40
 
   # Riproduzione in background + notifica media controls
+  # (gestisce da sola il proprio Manifest Android: non serve audio_service separato)
   just_audio_background: ^0.0.1-beta.13
-  audio_service: ^0.18.15
 
 dev_dependencies:
   flutter_test:
