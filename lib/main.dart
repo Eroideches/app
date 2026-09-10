@@ -133,21 +133,65 @@ class PipedApiException implements Exception {
 }
 
 class PipedService {
-  // Elenco di istanze pubbliche Piped, usate in ordine come fallback:
-  // se un'istanza non risponde si prova automaticamente la successiva.
-  static const List<String> _instances = [
+  // Elenco statico di riserva, usato se non è possibile scaricare quello
+  // aggiornato dal repository ufficiale (vedi _getInstances). Aggiornato
+  // dalla lista pubblica ufficiale di TeamPiped/documentation.
+  static const List<String> _fallbackInstances = [
     'https://pipedapi.kavin.rocks',
-    'https://pipedapi.adminforge.de',
-    'https://api.piped.yt',
-    'https://piped-api.lunar.icu',
+    'https://pipedapi-libre.kavin.rocks',
     'https://pipedapi.leptons.xyz',
+    'https://pipedapi.nosebs.ru',
+    'https://pipedapi.adminforge.de',
+    'https://piped-api.privacy.com.de',
+    'https://api.piped.yt',
+    'https://pipedapi.drgns.space',
+    'https://pipedapi.owo.si',
+    'https://pipedapi.ducks.party',
+    'https://api.piped.private.coffee',
+    'https://pipedapi.darkness.services',
   ];
+
+  static const String _instanceListUrl =
+      'https://raw.githubusercontent.com/TeamPiped/documentation/refs/heads/main/content/docs/public-instances/index.md';
+
+  static List<String>? _cachedInstances;
+
+  // Il progetto Piped consiglia esplicitamente di recuperare l'elenco delle
+  // istanze pubbliche dinamicamente, perché quello statico invecchia in
+  // fretta. Qui lo scarichiamo una volta per sessione app e lo mettiamo in
+  // cache; se il download fallisce si torna all'elenco statico di riserva.
+  static Future<List<String>> _getInstances() async {
+    if (_cachedInstances != null) return _cachedInstances!;
+
+    try {
+      final response = await http
+          .get(Uri.parse(_instanceListUrl))
+          .timeout(const Duration(seconds: 6));
+      if (response.statusCode == 200) {
+        final matches = RegExp(r'\|\s*(https://\S+?)\s*\|').allMatches(response.body);
+        final dynamicList = matches.map((m) => m.group(1)!).toSet().toList();
+        if (dynamicList.isNotEmpty) {
+          final merged = [
+            ...dynamicList,
+            ..._fallbackInstances.where((i) => !dynamicList.contains(i)),
+          ];
+          _cachedInstances = merged;
+          return merged;
+        }
+      }
+    } catch (_) {
+      // Ignorato: si procede con l'elenco statico di riserva.
+    }
+    _cachedInstances = _fallbackInstances;
+    return _fallbackInstances;
+  }
 
   static Future<List<Song>> search(String query) async {
     if (query.trim().isEmpty) return [];
-    Object? lastError;
+    final instances = await _getInstances();
+    final errors = <String>[];
 
-    for (final instance in _instances) {
+    for (final instance in instances) {
       try {
         final uri = Uri.parse('$instance/search').replace(queryParameters: {
           'q': query,
@@ -167,22 +211,26 @@ class PipedService {
               .where((song) => song.id.isNotEmpty)
               .toList();
           return songs;
+        } else {
+          errors.add('$instance → HTTP ${response.statusCode}');
         }
       } catch (e) {
-        lastError = e;
+        errors.add('$instance → $e');
         continue;
       }
     }
     throw PipedApiException(
-      'Nessuna istanza Piped raggiungibile al momento. Riprova più tardi. '
-      '(${lastError ?? "errore sconosciuto"})',
+      'Nessuna istanza Piped ha risposto correttamente (${instances.length} provate). '
+      'Dettagli: ${errors.take(3).join(' | ')}'
+      '${errors.length > 3 ? ' e altre ${errors.length - 3}...' : ''}',
     );
   }
 
   static Future<String> getAudioStreamUrl(String videoId) async {
-    Object? lastError;
+    final instances = await _getInstances();
+    final errors = <String>[];
 
-    for (final instance in _instances) {
+    for (final instance in instances) {
       try {
         final uri = Uri.parse('$instance/streams/$videoId');
         final response = await http.get(uri).timeout(const Duration(seconds: 8));
@@ -191,7 +239,10 @@ class PipedService {
           final data = jsonDecode(response.body) as Map<String, dynamic>;
           final audioStreams =
               (data['audioStreams'] as List<dynamic>?) ?? [];
-          if (audioStreams.isEmpty) continue;
+          if (audioStreams.isEmpty) {
+            errors.add('$instance → nessuno stream audio disponibile');
+            continue;
+          }
 
           final streams = audioStreams.whereType<Map<String, dynamic>>().toList();
           streams.sort((a, b) {
@@ -202,15 +253,18 @@ class PipedService {
 
           final url = streams.first['url'] as String?;
           if (url != null && url.isNotEmpty) return url;
+        } else {
+          errors.add('$instance → HTTP ${response.statusCode}');
         }
       } catch (e) {
-        lastError = e;
+        errors.add('$instance → $e');
         continue;
       }
     }
     throw PipedApiException(
-      'Impossibile ottenere lo stream audio per questo brano. '
-      '(${lastError ?? "errore sconosciuto"})',
+      'Impossibile ottenere lo stream audio (${instances.length} istanze provate). '
+      'Dettagli: ${errors.take(3).join(' | ')}'
+      '${errors.length > 3 ? ' e altre ${errors.length - 3}...' : ''}',
     );
   }
 }
@@ -567,8 +621,8 @@ class MiniPlayer extends StatelessWidget {
 class SongThumbnail extends StatelessWidget {
   final String url;
   final double size;
-  const SongThumbnail({super.key, required this.url, this.size = 48});
-
+  const SongThumbnail({super.key, required this.url, this.
+    
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1090,3 +1144,4 @@ class PlaylistDetailScreen extends StatelessWidget {
     );
   }
 }
+                      
