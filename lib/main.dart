@@ -1,5 +1,4 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
@@ -13,10 +12,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // L'inizializzazione del servizio di background è avvolta in un try/catch:
-  // se fallisce (permesso notifiche negato su Android 13+, piattaforma web,
-  // o altro problema nativo) l'app deve comunque avviarsi e mostrare la UI
-  // invece di restare bloccata su schermo nero prima ancora di runApp().
   try {
     await JustAudioBackground.init(
       androidNotificationChannelId: 'com.soundstream.app.channel.audio',
@@ -73,7 +68,7 @@ class SoundStreamApp extends StatelessWidget {
 }
 
 // =========================================================================
-// MODELLO DATI
+// MODELLI DATI
 // =========================================================================
 
 class Song {
@@ -108,6 +103,14 @@ class Song {
       durationSeconds: (json['duration'] as num?)?.toInt() ?? 0,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'artist': artist,
+    'thumbnailUrl': thumbnailUrl,
+    'durationSeconds': durationSeconds,
+  };
 }
 
 String formatDuration(Duration d) {
@@ -122,7 +125,7 @@ String formatDuration(Duration d) {
 }
 
 // =========================================================================
-// SERVIZIO PIPED API (ricerca + estrazione stream audio da YouTube)
+// ECCEZIONE CUSTOM
 // =========================================================================
 
 class PipedApiException implements Exception {
@@ -132,10 +135,11 @@ class PipedApiException implements Exception {
   String toString() => message;
 }
 
+// =========================================================================
+// SERVIZIO PIPED API
+// =========================================================================
+
 class PipedService {
-  // Elenco statico di riserva, usato se non è possibile scaricare quello
-  // aggiornato dal repository ufficiale (vedi _getInstances). Aggiornato
-  // dalla lista pubblica ufficiale di TeamPiped/documentation.
   static const List<String> _fallbackInstances = [
     'https://pipedapi.kavin.rocks',
     'https://pipedapi-libre.kavin.rocks',
@@ -156,10 +160,6 @@ class PipedService {
 
   static List<String>? _cachedInstances;
 
-  // Il progetto Piped consiglia esplicitamente di recuperare l'elenco delle
-  // istanze pubbliche dinamicamente, perché quello statico invecchia in
-  // fretta. Qui lo scarichiamo una volta per sessione app e lo mettiamo in
-  // cache; se il download fallisce si torna all'elenco statico di riserva.
   static Future<List<String>> _getInstances() async {
     if (_cachedInstances != null) return _cachedInstances!;
 
@@ -237,8 +237,7 @@ class PipedService {
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body) as Map<String, dynamic>;
-          final audioStreams =
-              (data['audioStreams'] as List<dynamic>?) ?? [];
+          final audioStreams = (data['audioStreams'] as List<dynamic>?) ?? [];
           if (audioStreams.isEmpty) {
             errors.add('$instance → nessuno stream audio disponibile');
             continue;
@@ -270,7 +269,7 @@ class PipedService {
 }
 
 // =========================================================================
-// PLAYER MANAGER (stato globale: player, coda, playlist)
+// PLAYER MANAGER
 // =========================================================================
 
 class PlayerManager extends ChangeNotifier {
@@ -293,7 +292,6 @@ class PlayerManager extends ChangeNotifier {
     });
   }
 
-  // Da chiamare una volta all'avvio dell'app per ripristinare le playlist salvate.
   Future<void> init() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -326,15 +324,7 @@ class PlayerManager extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final data = _playlists.map((name, songs) => MapEntry(
             name,
-            songs
-                .map((s) => {
-                      'id': s.id,
-                      'title': s.title,
-                      'artist': s.artist,
-                      'thumbnailUrl': s.thumbnailUrl,
-                      'durationSeconds': s.durationSeconds,
-                    })
-                .toList(),
+            songs.map((s) => s.toJson()).toList(),
           ));
       await prefs.setString(_playlistsPrefsKey, jsonEncode(data));
     } catch (e) {
@@ -369,7 +359,8 @@ class PlayerManager extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final streamUrl = song.streamUrl ?? await PipedService.getAudioStreamUrl(song.id);
+      final streamUrl =
+          song.streamUrl ?? await PipedService.getAudioStreamUrl(song.id);
       song.streamUrl = streamUrl;
 
       await _player.setAudioSource(
@@ -379,7 +370,9 @@ class PlayerManager extends ChangeNotifier {
             id: song.id,
             title: song.title,
             artist: song.artist,
-            artUri: song.thumbnailUrl.isNotEmpty ? Uri.tryParse(song.thumbnailUrl) : null,
+            artUri: song.thumbnailUrl.isNotEmpty
+                ? Uri.tryParse(song.thumbnailUrl)
+                : null,
           ),
         ),
       );
@@ -515,7 +508,7 @@ class PlayerManager extends ChangeNotifier {
 }
 
 // =========================================================================
-// ROOT SCREEN (Home + Playlist con mini-player persistente)
+// UI - ROOT SCREEN
 // =========================================================================
 
 class RootScreen extends StatefulWidget {
@@ -551,8 +544,16 @@ class _RootScreenState extends State<RootScreen> {
         selectedIndex: _tabIndex,
         onDestinationSelected: (index) => setState(() => _tabIndex = index),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.queue_music_outlined), selectedIcon: Icon(Icons.queue_music), label: 'Playlist'),
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.queue_music_outlined),
+            selectedIcon: Icon(Icons.queue_music),
+            label: 'Playlist',
+          ),
         ],
       ),
     );
@@ -560,7 +561,7 @@ class _RootScreenState extends State<RootScreen> {
 }
 
 // =========================================================================
-// MINI PLAYER
+// UI - MINI PLAYER
 // =========================================================================
 
 class MiniPlayer extends StatelessWidget {
@@ -593,16 +594,36 @@ class MiniPlayer extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+                      Text(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        song.artist,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            TextStyle(color: Colors.grey[400], fontSize: 12),
+                      ),
                     ],
                   ),
                 ),
                 if (manager.isLoading)
-                  const SizedBox(width: 32, height: 32, child: Padding(padding: EdgeInsets.all(6), child: CircularProgressIndicator(strokeWidth: 2)))
+                  const SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: Padding(
+                      padding: EdgeInsets.all(6),
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
                 else
                   IconButton(
-                    icon: Icon(manager.player.playing ? Icons.pause : Icons.play_arrow, size: 32),
+                    icon: Icon(manager.player.playing
+                        ? Icons.pause
+                        : Icons.play_arrow),
                     onPressed: manager.togglePlayPause,
                   ),
               ],
@@ -615,14 +636,15 @@ class MiniPlayer extends StatelessWidget {
 }
 
 // =========================================================================
-// WIDGET RIUTILIZZABILI
+// UI - WIDGET RIUTILIZZABILI
 // =========================================================================
 
 class SongThumbnail extends StatelessWidget {
   final String url;
   final double size;
-  const SongThumbnail({super.key, required this.url, this.
-    
+
+  const SongThumbnail({super.key, required this.url, this.size = 48});
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -633,11 +655,15 @@ class SongThumbnail extends StatelessWidget {
           ? Icon(Icons.music_note, color: Colors.grey[500], size: size * 0.5)
           : Image.network(
               url,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Icon(Icons.music_note, color: Colors.grey[500], size: size * 0.5),
+                fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Icon(Icons.music_note,
+                  color: Colors.grey[500], size: size * 0.5),
               loadingBuilder: (context, child, progress) {
                 if (progress == null) return child;
-                return Center(child: Icon(Icons.music_note, color: Colors.grey[700], size: size * 0.5));
+                return Center(
+                  child: Icon(Icons.music_note,
+                      color: Colors.grey[700], size: size * 0.5),
+                );
               },
             ),
     );
@@ -694,9 +720,15 @@ class SongListTile extends StatelessWidget {
               },
               itemBuilder: (context) => [
                 if (onAddToQueue != null)
-                  const PopupMenuItem(value: 'queue', child: Text('Aggiungi alla coda')),
+                  const PopupMenuItem(
+                    value: 'queue',
+                    child: Text('Aggiungi alla coda'),
+                  ),
                 if (onAddToPlaylist != null)
-                  const PopupMenuItem(value: 'playlist', child: Text('Aggiungi a playlist')),
+                  const PopupMenuItem(
+                    value: 'playlist',
+                    child: Text('Aggiungi a playlist'),
+                  ),
               ],
             ),
     );
@@ -704,7 +736,6 @@ class SongListTile extends StatelessWidget {
 }
 
 Future<void> showAddToPlaylistSheet(BuildContext context, Song song) {
-  final manager = context.read<PlayerManager>();
   return showModalBottomSheet(
     context: context,
     backgroundColor: const Color(0xFF1E1E1E),
@@ -718,12 +749,15 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) {
               children: [
                 const Padding(
                   padding: EdgeInsets.all(16),
-                  child: Text('Aggiungi a playlist', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  child: Text('Aggiungi a playlist',
+                      style: TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
                 if (names.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Text('Nessuna playlist. Creane una dalla scheda Playlist.'),
+                    child: Text(
+                        'Nessuna playlist. Creane una dalla scheda Playlist.'),
                   ),
                 ...names.map((name) => ListTile(
                       leading: const Icon(Icons.playlist_play),
@@ -747,7 +781,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) {
 }
 
 // =========================================================================
-// HOME SCREEN (ricerca)
+// UI - HOME SCREEN
 // =========================================================================
 
 class HomeScreen extends StatefulWidget {
@@ -809,11 +843,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 hintText: 'Cerca brani o artisti...',
                 filled: true,
                 fillColor: const Color(0xFF242424),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide.none,
+                ),
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _isSearching
-                    ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)))
-                    : IconButton(icon: const Icon(Icons.arrow_forward), onPressed: _runSearch),
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.arrow_forward),
+                        onPressed: _runSearch,
+                      ),
               ),
             ),
           ),
@@ -826,7 +873,9 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _results.isEmpty
                 ? Center(
                     child: Text(
-                      _isSearching ? 'Ricerca in corso...' : 'Cerca un brano per iniziare',
+                      _isSearching
+                          ? 'Ricerca in corso...'
+                          : 'Cerca un brano per iniziare',
                       style: TextStyle(color: Colors.grey[500]),
                     ),
                   )
@@ -842,10 +891,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         onAddToQueue: () {
                           manager.addToQueue(song);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('"${song.title}" aggiunto alla coda')),
+                            SnackBar(
+                              content: Text(
+                                '"${song.title}" aggiunto alla coda',
+                              ),
+                            ),
                           );
                         },
-                        onAddToPlaylist: () => showAddToPlaylistSheet(context, song),
+                        onAddToPlaylist: () =>
+                            showAddToPlaylistSheet(context, song),
                       );
                     },
                   ),
@@ -857,7 +911,7 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // =========================================================================
-// PLAYER SCREEN
+// UI - PLAYER SCREEN
 // =========================================================================
 
 class PlayerScreen extends StatelessWidget {
@@ -892,7 +946,8 @@ class PlayerScreen extends StatelessWidget {
                         aspectRatio: 1,
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(16),
-                          child: SongThumbnail(url: song.thumbnailUrl, size: 280),
+                          child:
+                              SongThumbnail(url: song.thumbnailUrl, size: 280),
                         ),
                       ),
                       const SizedBox(height: 32),
@@ -901,19 +956,23 @@ class PlayerScreen extends StatelessWidget {
                         textAlign: TextAlign.center,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         song.artist,
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 15, color: Colors.grey[400]),
+                        style: TextStyle(
+                            fontSize: 15, color: Colors.grey[400]),
                       ),
                       const SizedBox(height: 16),
                       if (manager.errorMessage != null)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: Text(manager.errorMessage!, style: TextStyle(color: Colors.red[300]), textAlign: TextAlign.center),
+                          child: Text(manager.errorMessage!,
+                              style: TextStyle(color: Colors.red[300]),
+                              textAlign: TextAlign.center),
                         ),
                       _PlayerSeekBar(manager: manager),
                       const SizedBox(height: 8),
@@ -929,11 +988,19 @@ class PlayerScreen extends StatelessWidget {
                             const SizedBox(
                               width: 72,
                               height: 72,
-                              child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()),
+                              child: Padding(
+                                padding: EdgeInsets.all(16),
+                                child: CircularProgressIndicator(),
+                              ),
                             )
                           else
                             IconButton(
-                              icon: Icon(manager.player.playing ? Icons.pause_circle_filled : Icons.play_circle_filled, size: 72),
+                              icon: Icon(
+                                manager.player.playing
+                                    ? Icons.pause_circle_filled
+                                    : Icons.play_circle_filled,
+                                size: 72,
+                              ),
                               onPressed: manager.togglePlayPause,
                             ),
                           const SizedBox(width: 16),
@@ -955,6 +1022,7 @@ class PlayerScreen extends StatelessWidget {
 
 class _PlayerSeekBar extends StatelessWidget {
   final PlayerManager manager;
+
   const _PlayerSeekBar({required this.manager});
 
   @override
@@ -964,14 +1032,18 @@ class _PlayerSeekBar extends StatelessWidget {
       builder: (context, snapshot) {
         final position = snapshot.data ?? Duration.zero;
         final duration = manager.player.duration ?? Duration.zero;
-        final maxMs = duration.inMilliseconds > 0 ? duration.inMilliseconds.toDouble() : 1.0;
-        final valueMs = position.inMilliseconds.clamp(0, maxMs.toInt()).toDouble();
+        final maxMs = duration.inMilliseconds > 0
+            ? duration.inMilliseconds.toDouble()
+            : 1.0;
+        final valueMs =
+            position.inMilliseconds.clamp(0, maxMs.toInt()).toDouble();
 
         return Column(
           children: [
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                thumbShape:
+                    const RoundSliderThumbShape(enabledThumbRadius: 6),
               ),
               child: Slider(
                 min: 0,
@@ -987,8 +1059,12 @@ class _PlayerSeekBar extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(formatDuration(position), style: TextStyle(color: Colors.grey[400], fontSize: 12)),
-                  Text(formatDuration(duration), style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+                  Text(formatDuration(position),
+                      style: TextStyle(
+                          color: Colors.grey[400], fontSize: 12)),
+                  Text(formatDuration(duration),
+                      style: TextStyle(
+                          color: Colors.grey[400], fontSize: 12)),
                 ],
               ),
             ),
@@ -1000,7 +1076,7 @@ class _PlayerSeekBar extends StatelessWidget {
 }
 
 // =========================================================================
-// QUEUE SCREEN
+// UI - QUEUE SCREEN
 // =========================================================================
 
 class QueueScreen extends StatelessWidget {
@@ -1022,7 +1098,9 @@ class QueueScreen extends StatelessWidget {
                     final song = queue[index];
                     return Container(
                       key: ValueKey('${song.id}_$index'),
-                      color: index == manager.currentIndex ? const Color(0xFF242424) : null,
+                      color: index == manager.currentIndex
+                          ? const Color(0xFF242424)
+                          : null,
                       child: SongListTile(
                         song: song,
                         isPlaying: index == manager.currentIndex,
@@ -1039,7 +1117,7 @@ class QueueScreen extends StatelessWidget {
 }
 
 // =========================================================================
-// PLAYLISTS SCREEN
+// UI - PLAYLISTS SCREEN
 // =========================================================================
 
 class PlaylistsScreen extends StatelessWidget {
@@ -1057,8 +1135,14 @@ class PlaylistsScreen extends StatelessWidget {
           decoration: const InputDecoration(hintText: 'Nome della playlist'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annulla')),
-          TextButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Crea')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annulla'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Crea'),
+          ),
         ],
       ),
     );
@@ -1079,7 +1163,9 @@ class PlaylistsScreen extends StatelessWidget {
             child: const Icon(Icons.add),
           ),
           body: names.isEmpty
-              ? const Center(child: Text('Nessuna playlist. Tocca + per crearne una.'))
+              ? const Center(
+                  child: Text(
+                      'Nessuna playlist. Tocca + per crearne una.'))
               : ListView.builder(
                   itemCount: names.length,
                   itemBuilder: (context, index) {
@@ -1087,14 +1173,18 @@ class PlaylistsScreen extends StatelessWidget {
                     final songs = manager.playlists[name] ?? [];
                     return ListTile(
                       leading: const Icon(Icons.playlist_play, size: 36),
-                      title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      title: Text(name,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
                       subtitle: Text('${songs.length} brani'),
                       trailing: IconButton(
                         icon: const Icon(Icons.delete_outline),
                         onPressed: () => manager.deletePlaylist(name),
                       ),
                       onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => PlaylistDetailScreen(playlistName: name)),
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              PlaylistDetailScreen(playlistName: name),
+                        ),
                       ),
                     );
                   },
@@ -1107,6 +1197,7 @@ class PlaylistsScreen extends StatelessWidget {
 
 class PlaylistDetailScreen extends StatelessWidget {
   final String playlistName;
+
   const PlaylistDetailScreen({super.key, required this.playlistName});
 
   @override
@@ -1126,7 +1217,9 @@ class PlaylistDetailScreen extends StatelessWidget {
             ],
           ),
           body: songs.isEmpty
-              ? const Center(child: Text('Playlist vuota. Aggiungi brani dalla ricerca.'))
+              ? const Center(
+                  child: Text(
+                      'Playlist vuota. Aggiungi brani dalla ricerca.'))
               : ListView.builder(
                   itemCount: songs.length,
                   itemBuilder: (context, index) {
@@ -1134,8 +1227,8 @@ class PlaylistDetailScreen extends StatelessWidget {
                     return SongListTile(
                       song: song,
                       isPlaying: manager.currentSong?.id == song.id,
-                      onTap: () => manager.playQueue(songs, index),
-                      onRemove: () => manager.removeFromPlaylist(playlistName, song),
+                    onRemove: () =>
+                          manager.removeFromPlaylist(playlistName, song),
                     );
                   },
                 ),
@@ -1144,4 +1237,3 @@ class PlaylistDetailScreen extends StatelessWidget {
     );
   }
 }
-                      
