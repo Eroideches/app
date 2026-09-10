@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // =========================================================================
 // ENTRY POINT
@@ -34,7 +35,7 @@ class SoundStreamApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => PlayerManager(),
+      create: (_) => PlayerManager()..init(),
       child: MaterialApp(
         title: 'SoundStream',
         debugShowCheckedModeBanner: false,
@@ -227,6 +228,7 @@ class PlayerManager extends ChangeNotifier {
   String? _errorMessage;
 
   final Map<String, List<Song>> _playlists = {};
+  static const String _playlistsPrefsKey = 'soundstream_playlists_v1';
 
   PlayerManager() {
     _player.playerStateStream.listen((state) {
@@ -235,6 +237,55 @@ class PlayerManager extends ChangeNotifier {
       }
       notifyListeners();
     });
+  }
+
+  // Da chiamare una volta all'avvio dell'app per ripristinare le playlist salvate.
+  Future<void> init() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_playlistsPrefsKey);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw) as Map<String, dynamic>;
+        _playlists.clear();
+        decoded.forEach((name, songsJson) {
+          final songs = (songsJson as List<dynamic>)
+              .cast<Map<String, dynamic>>()
+              .map((s) => Song(
+                    id: s['id'] as String,
+                    title: s['title'] as String,
+                    artist: s['artist'] as String,
+                    thumbnailUrl: s['thumbnailUrl'] as String,
+                    durationSeconds: s['durationSeconds'] as int,
+                  ))
+              .toList();
+          _playlists[name] = songs;
+        });
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Impossibile caricare le playlist salvate: $e');
+    }
+  }
+
+  Future<void> _persistPlaylists() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final data = _playlists.map((name, songs) => MapEntry(
+            name,
+            songs
+                .map((s) => {
+                      'id': s.id,
+                      'title': s.title,
+                      'artist': s.artist,
+                      'thumbnailUrl': s.thumbnailUrl,
+                      'durationSeconds': s.durationSeconds,
+                    })
+                .toList(),
+          ));
+      await prefs.setString(_playlistsPrefsKey, jsonEncode(data));
+    } catch (e) {
+      debugPrint('Impossibile salvare le playlist: $e');
+    }
   }
 
   AudioPlayer get player => _player;
@@ -376,11 +427,13 @@ class PlayerManager extends ChangeNotifier {
     if (trimmed.isEmpty || _playlists.containsKey(trimmed)) return;
     _playlists[trimmed] = [];
     notifyListeners();
+    _persistPlaylists();
   }
 
   void deletePlaylist(String name) {
     _playlists.remove(name);
     notifyListeners();
+    _persistPlaylists();
   }
 
   void addToPlaylist(String name, Song song) {
@@ -389,6 +442,7 @@ class PlayerManager extends ChangeNotifier {
     if (list.any((s) => s.id == song.id)) return;
     list.add(song);
     notifyListeners();
+    _persistPlaylists();
   }
 
   void removeFromPlaylist(String name, Song song) {
@@ -396,6 +450,7 @@ class PlayerManager extends ChangeNotifier {
     if (list == null) return;
     list.removeWhere((s) => s.id == song.id);
     notifyListeners();
+    _persistPlaylists();
   }
 
   @override
